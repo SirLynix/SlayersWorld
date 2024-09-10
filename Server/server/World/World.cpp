@@ -45,8 +45,8 @@ bool World::Initialize()
 	}
     printf("Connection SQL...\n");
 
-    std::vector<std::string> l_ConfigSQLWorld = g_Config->GetValueList(g_Config->GetValue("worldDB"));
-    if (!g_SqlManager->InitializeWorld(l_ConfigSQLWorld[0], l_ConfigSQLWorld[1], l_ConfigSQLWorld[2], l_ConfigSQLWorld[3], l_ConfigSQLWorld[4]))
+    std::string l_ConfigSQLWorld = g_Config->GetValue("worldDB");
+    if (!g_SqlManager->InitializeWorld(l_ConfigSQLWorld))
         printf("Error connection world SQL...\n");
 
     printf("Initialize MapsTemplate\n");
@@ -133,8 +133,8 @@ bool World::Initialize()
     if (!g_MapManager->LaunchWorldsMap())
         printf("Error Launching World Map...\n");
 
-    std::vector<std::string> l_ConfigSQLCharacters = g_Config->GetValueList(g_Config->GetValue("charactersDB"));
-    if (!g_SqlManager->InitializeCharacters(l_ConfigSQLCharacters[0], l_ConfigSQLCharacters[1], l_ConfigSQLCharacters[2], l_ConfigSQLCharacters[3], l_ConfigSQLCharacters[4]))
+    std::string l_ConfigSQLCharacters = g_Config->GetValue("charactersDB");
+    if (!g_SqlManager->InitializeCharacters(l_ConfigSQLCharacters))
         printf("Error connection character SQL...\n");
 
 	printf("Launch Network...\n");

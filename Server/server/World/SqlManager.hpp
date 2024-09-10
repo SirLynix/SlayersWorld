@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
@@ -9,7 +9,7 @@
 #include <netdb.h>
 #endif
 
-#include <mysql.h>
+#include <sqlite3.h>
 #include <string>
 #include "../Define.hpp"
 #include "../Entities/Player.hpp"
@@ -24,8 +24,8 @@ class SqlManager
 public:
 	SqlManager();
 	~SqlManager();
-	bool InitializeCharacters(std::string, std::string, std::string, std::string, std::string);
-    bool InitializeWorld(std::string, std::string, std::string, std::string, std::string);
+	bool InitializeCharacters(std::string);
+    bool InitializeWorld(std::string);
 
     int32 GetIDLogin(std::string, std::string);
     int32 GetIDCharacter(uint32);
@@ -100,7 +100,10 @@ public:
     int32 GetPlayerID(const std::string &);
 
 private:
-	MYSQL m_MysqlCharacters;
-    MYSQL m_MysqlWorld;
+    bool Exec(sqlite3* p_Database, const std::string& p_Query);
+    bool Prepare(sqlite3* p_Database, const std::string& p_Query, sqlite3_stmt** p_Stmt);
+
+	sqlite3* m_MysqlCharacters;
+    sqlite3* m_MysqlWorld;
 };
 

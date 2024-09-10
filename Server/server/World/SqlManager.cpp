@@ -7,140 +7,153 @@
 #include "../System/WebHook.hpp"
 #include <cstdlib>
 #include <ctime>
+#include <stdexcept>
 
 SqlManager::SqlManager()
 {
-	mysql_init(&m_MysqlCharacters);
-    mysql_init(&m_MysqlWorld);
 }
 
 
 SqlManager::~SqlManager()
 {
-    mysql_close(&m_MysqlCharacters);
-    mysql_close(&m_MysqlWorld);
+    sqlite3_close(m_MysqlCharacters);
+    sqlite3_close(m_MysqlWorld);
 }
 
-bool SqlManager::InitializeCharacters(std::string p_Host, std::string p_User, std::string p_PassWord, std::string p_DB, std::string p_Port)
+bool SqlManager::InitializeCharacters(std::string p_DB)
 {
-	if (!mysql_real_connect(&m_MysqlCharacters, p_Host.c_str(), p_User.c_str(), p_PassWord.c_str(), p_DB.c_str(), std::stoi(p_Port), NULL, 0))
-		return false;
-    my_bool l_AutoRecoonect = true; ///< To auto reconnect if it get disconnected
-    mysql_options(&m_MysqlCharacters, MYSQL_OPT_RECONNECT, &l_AutoRecoonect);
+    if (sqlite3_open(p_DB.c_str(), &m_MysqlCharacters) != SQLITE_OK)
+    {
+        printf("failed to load %s: %s", p_DB.c_str(), sqlite3_errmsg(m_MysqlCharacters));
+        sqlite3_close(m_MysqlCharacters);
+        return false;
+    }
+
 	return true;
 }
 
-bool SqlManager::InitializeWorld(std::string p_Host, std::string p_User, std::string p_PassWord, std::string p_DB, std::string p_Port)
+bool SqlManager::InitializeWorld(std::string p_DB)
 {
-    if (!mysql_real_connect(&m_MysqlWorld, p_Host.c_str(), p_User.c_str(), p_PassWord.c_str(), p_DB.c_str(), std::stoi(p_Port), NULL, 0))
+    if (sqlite3_open(p_DB.c_str(), &m_MysqlWorld) != SQLITE_OK)
+    {
+        printf("failed to load %s: %s", p_DB.c_str(), sqlite3_errmsg(m_MysqlWorld));
+        sqlite3_close(m_MysqlWorld);
         return false;
-    my_bool l_AutoRecoonect = true; ///< To auto reconnect if it get disconnected
-    mysql_options(&m_MysqlWorld, MYSQL_OPT_RECONNECT, &l_AutoRecoonect);
-    return true;
+    }
+
+	return true;
 }
 
 void SqlManager::AddNewAccount(std::string p_Login, std::string p_Password)
 {
     std::string l_Query = "INSERT INTO `login` (login, password) VALUES ('" + p_Login + "', MD5('" + p_Password + "'));";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 bool SqlManager::IsExistingAccound(std::string p_Login)
 {
     std::string l_Query = "SELECT `id` FROM `login` WHERE `login` = '" + p_Login + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
+
     bool l_Existing = false;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
+    {
         l_Existing = true;
+    }
+    sqlite3_finalize(l_Stmt);
 
-    mysql_free_result(l_Result);
-    return l_Existing;
+    return true;
 }
 
 int32 SqlManager::GetIDLogin(std::string p_Login, std::string p_Password)
 {
     std::string l_Query = "SELECT `id` FROM `login` WHERE `login` = '" + p_Login + "' AND `password` = MD5('" + p_Password + "')";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
+
     int32 l_ID = -1;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
+    {
+        l_ID = sqlite3_column_int(l_Stmt, 0);
+    }
+    sqlite3_finalize(l_Stmt);
 
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
-        l_ID = atoi(l_Row[0]);
-
-    mysql_free_result(l_Result);
     return l_ID;
 }
 
 int32 SqlManager::GetIDCharacter(uint32 p_AccountID)
 {
     std::string l_Query = "SELECT `characterID` FROM `characters` WHERE `accountID` = '" + std::to_string(p_AccountID) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int32 l_ID = -1;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
+    {
+        l_ID = sqlite3_column_int(l_Stmt, 0);
+    }
+    sqlite3_finalize(l_Stmt);
 
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
-        l_ID = atoi(l_Row[0]);
-
-    mysql_free_result(l_Result);
     return l_ID;
 }
 
 void SqlManager::AddConnectionLogin(uint32 p_AccountID)
 {
     std::string l_Query = "insert into `connection_logs` (`accountID`) values('" + std::to_string(p_AccountID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
     l_Query = "UPDATE `characters` SET `lastConnection` = NOW() WHERE accountID = " + std::to_string(p_AccountID) + ";";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 std::string SqlManager::GetLoginName(uint32 p_AccountID)
 {
     std::string l_Query = "SELECT `characterName` FROM `login` WHERE `id` = '" + std::to_string(p_AccountID) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
 
-    std::string l_Name = "";
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
-        l_Name = std::string(l_Row[0]);
+    std::string l_Name;
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
+    {
+        l_Name = (const char*)sqlite3_column_text(l_Stmt, 0);
+    }
+    sqlite3_finalize(l_Stmt);
 
-    mysql_free_result(l_Result);
     return l_Name;
 }
 
 void SqlManager::AddNewPlayer(uint32 p_AccountID)
 {
     std::string l_Query = "insert into `characters` (`accountID`, `name`, `skinID`, `level`, `health`, `alignment`, `mapID`, `posX`, `posY`, `orientation`, `xp`) values('" + std::to_string(p_AccountID) + "', '" + GetLoginName(p_AccountID) + "','49','1','100','0','" + std::to_string(CREATION_POINT_MAP) + "','" + std::to_string(CREATION_POINT_X) + "','" + std::to_string(CREATION_POINT_Y) + "','2','0');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddKeyDefaultBindsForAccount(uint32 p_AccountID)
 {
     std::string l_Query = "INSERT INTO `account_key_binds` VALUES (" + std::to_string(p_AccountID) + ", 1, 74), (" + std::to_string(p_AccountID) + ", 2, 73), (" + std::to_string(p_AccountID) + ", 3, 71), (" + std::to_string(p_AccountID) + ", 4, 72), (" + std::to_string(p_AccountID) + ", 5, 57), (" + std::to_string(p_AccountID) + ", 6, 58), (" + std::to_string(p_AccountID) + ", 7, 85), (" + std::to_string(p_AccountID) + ", 8, 18), (" + std::to_string(p_AccountID) + ", 9, 25), (" + std::to_string(p_AccountID) + ", 10, 4);";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::ReplaceKeyBindsForAccount(uint32 p_AccountID, eKeyBoardAction p_Bind, uint8 p_Key)
 {
     std::string l_Query = "REPLACE `account_key_binds` SET `key` = " + std::to_string(p_Key) + " WHERE `typeID` = " + std::to_string(p_Bind) + " AND `accountID` = " + std::to_string(p_AccountID) + ";";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 Player* SqlManager::GetNewPlayer(uint32 p_AccountID)
 {
     std::string l_Query = "SELECT characterID, name, level, class, health, mana, alignment, activeTitleID, slotBagNb, skinID, mapID, posX, posY, orientation, xp FROM characters WHERE accountID = '" + std::to_string(p_AccountID) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint32 l_ID = 0;
     std::string l_Name = "";
@@ -158,32 +171,27 @@ Player* SqlManager::GetNewPlayer(uint32 p_AccountID)
     uint8 l_Orientation = 0;
     uint32 l_Xp = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    Player* l_Player = nullptr;
-
     bool l_Exist = false;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
         l_Exist = true;
-        l_ID = atoi(l_Row[0]);
-        l_Name = std::string(l_Row[1]);
-        l_Lvl = atoi(l_Row[2]);
-        l_Class = atoi(l_Row[3]);
-        l_Health = atoi(l_Row[4]);
-        l_Mana = atoi(l_Row[5]);
-        l_Alignment = atoi(l_Row[6]);
-        l_ActiveTitleID = atoi(l_Row[7]);
-        l_SlotBagNb = atoi(l_Row[8]);
-        l_SkinID = atoi(l_Row[9]);
-        l_MapID = atoi(l_Row[10]);
-        l_PosX = atoi(l_Row[11]);
-        l_PosY = atoi(l_Row[12]);
-        l_Orientation = atoi(l_Row[13]);
-        l_Xp = atoi(l_Row[14]);
+        l_ID = sqlite3_column_int(l_Stmt, 0);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 1);
+        l_Lvl = sqlite3_column_int(l_Stmt, 2);
+        l_Class = sqlite3_column_int(l_Stmt, 3);
+        l_Health = sqlite3_column_int(l_Stmt, 4);
+        l_Mana = sqlite3_column_int(l_Stmt, 5);
+        l_Alignment = sqlite3_column_int(l_Stmt, 6);
+        l_ActiveTitleID = sqlite3_column_int(l_Stmt, 7);
+        l_SlotBagNb = sqlite3_column_int(l_Stmt, 8);
+        l_SkinID = sqlite3_column_int(l_Stmt, 9);
+        l_MapID = sqlite3_column_int(l_Stmt, 10);
+        l_PosX = sqlite3_column_int(l_Stmt, 11);
+        l_PosY = sqlite3_column_int(l_Stmt, 12);
+        l_Orientation = sqlite3_column_int(l_Stmt, 13);
+        l_Xp = sqlite3_column_int(l_Stmt, 14);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     eAccessType l_PlayerAccessType = GetAccessType(p_AccountID);
     eAccessType l_AccessRequired = (eAccessType)atoi(g_Config->GetValue("AccessLevel").c_str());
@@ -206,7 +214,7 @@ Player* SqlManager::GetNewPlayer(uint32 p_AccountID)
         return l_Player;
     }
 
-    l_Player = new Player(p_AccountID, l_ID, l_Name, l_Lvl, (eClass)l_Class, l_Health, l_Mana, l_Alignment, l_SkinID, l_MapID, l_PosX, l_PosY, (Orientation)l_Orientation, l_Xp, l_PlayerAccessType);
+    Player* l_Player = new Player(p_AccountID, l_ID, l_Name, l_Lvl, (eClass)l_Class, l_Health, l_Mana, l_Alignment, l_SkinID, l_MapID, l_PosX, l_PosY, (Orientation)l_Orientation, l_Xp, l_PlayerAccessType);
     l_Player->SetRespawnPosition(GetRespawnPositionForPlayer(l_ID));
     l_Player->SetMaxBagSlot(l_SlotBagNb);
 
@@ -227,111 +235,110 @@ Player* SqlManager::GetNewPlayer(uint32 p_AccountID)
 void SqlManager::AddNewRespawnPositionForPlayer(uint32 p_PlayerID)
 {
     std::string l_Query = "insert into `characters_respawn` (`characterID`, `posX`, `posY`, `mapID`, `orientation`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(CREATION_POINT_X) + "', '" + std::to_string(CREATION_POINT_Y) + "', '" + std::to_string(CREATION_POINT_MAP) + "', '2');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddNewSkinForPlayer(const uint32 & p_PlayerID, const uint16 & p_SkinID)
 {
     std::string l_Query = "replace into `characters_skins` (`characterID`, `skinID`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(p_SkinID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddNewTitleForPlayer(const uint32 & p_PlayerID, const uint16 & p_TitleID)
 {
     std::string l_Query = "replace into `characters_titles` (`characterID`, `skinID`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(p_TitleID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddNewItemForPlayer(const uint32 & p_PlayerID, const uint8 & p_Slot, const uint16 & p_ItemID, const uint8 & p_Stack)
 {
     std::string l_Query = "replace into `characters_items` (`characterID`, `slotNb`, `itemID`, `stackNb`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(p_Slot) + "', '" + std::to_string(p_ItemID) + "', '" + std::to_string(p_Stack) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddNewEquipmentForPlayer(const uint32 & p_PlayerID, const eTypeEquipment & p_Type, const uint16 & p_ItemID)
 {
     std::string l_Query = "replace into `characters_equipments` (`characterID`, `typeID`, `itemID`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(p_Type) + "', '" + std::to_string(p_ItemID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::RemoveEquipmentForPlayer(const uint32 & p_PlayerID, const eTypeEquipment & p_Type)
 {
     std::string l_Query = "DELETE FROM `characters_equipments` WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `typeID` =  '" + std::to_string(p_Type) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 
 void SqlManager::UpdateItemStackForPlayer(const uint32 & p_PlayerID, const uint8 & p_Slot, const uint16 & p_ItemID, const uint8 & p_Stack)
 {
     std::string l_Query = "UPDATE `characters_items` SET `stackNb` = '" + std::to_string(p_Stack) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` =  '" + std::to_string(p_Slot) + "' AND `itemID` =  '" + std::to_string(p_ItemID) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::RemoveItemForPlayer(const uint32 & p_PlayerID, const uint8 & p_Slot)
 {
     std::string l_Query = "DELETE FROM `characters_items` WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `SlotNb` =  '" + std::to_string(p_Slot) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::UpdateCurrencyForPlayer(const uint32 & p_PlayerID, const eTypeCurrency & p_Type, const uint16 & p_Value)
 {
     std::string l_Query = "SELECT `value` FROM characters_currencies WHERE characterID = '" + std::to_string(p_PlayerID) + "' AND typeID = '" + std::to_string(p_Type) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
     bool l_Exist = false;
-
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
         l_Exist = true;
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     if (!l_Exist)
     {
         std::string l_Query = "INSERT INTO `characters_currencies` (`characterID`, `typeID`, `value`) values('" + std::to_string(p_PlayerID) + "', '" + std::to_string(p_Type) + "', '" + std::to_string(p_Value) + "');";
-        mysql_query(&m_MysqlCharacters, l_Query.c_str());
+        Exec(m_MysqlCharacters, l_Query);
     }
     else
     {
         std::string l_Query = "UPDATE `characters_currencies` SET `value` = '" + std::to_string(p_Value) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `typeID` =  '" + std::to_string((uint8)p_Type) + "';";
-        mysql_query(&m_MysqlCharacters, l_Query.c_str());
+        Exec(m_MysqlCharacters, l_Query);
     }
 }
 
 void SqlManager::UpdateItemSlotForPlayer(const uint32 & p_PlayerID, const uint8 & p_SlotOld, const uint8 & p_SlotNew)
 {
     std::string l_Query = "UPDATE `characters_items` SET `slotNb` = -1 WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` =  '" + std::to_string(p_SlotNew) + "';";
-    l_Query += "UPDATE `characters_items` SET `slotNb` = '" + std::to_string(p_SlotNew) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` =  '" + std::to_string(p_SlotOld) + "';";
-    l_Query += "UPDATE `characters_items` SET `slotNb` = '" + std::to_string(p_SlotOld) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` = -1;";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
+    l_Query = "UPDATE `characters_items` SET `slotNb` = '" + std::to_string(p_SlotNew) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` =  '" + std::to_string(p_SlotOld) + "';";
+    Exec(m_MysqlCharacters, l_Query);
+    l_Query = "UPDATE `characters_items` SET `slotNb` = '" + std::to_string(p_SlotOld) + "' WHERE `characterID` = '" + std::to_string(p_PlayerID) + "' AND `slotNb` = -1;";
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 WorldPosition SqlManager::GetRespawnPositionForPlayer(uint32 p_PlayerID)
 {
     std::string l_Query = "SELECT posX, posY, mapID, orientation FROM characters_respawn WHERE characterID = '" + std::to_string(p_PlayerID) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
  
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
     uint16 l_MapID = 0;
     uint8 l_Orientation = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
     bool l_Exist = false;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
         l_Exist = true;
-        l_PosX = atoi(l_Row[0]);
-        l_PosY = atoi(l_Row[1]);
-        l_MapID = atoi(l_Row[2]);
-        l_Orientation = atoi(l_Row[3]);
+        l_PosX = sqlite3_column_int(l_Stmt, 0);
+        l_PosY = sqlite3_column_int(l_Stmt, 1);
+        l_MapID = sqlite3_column_int(l_Stmt, 2);
+        l_Orientation = sqlite3_column_int(l_Stmt, 3);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     if (!l_Exist)
     {
@@ -346,32 +353,31 @@ WorldPosition SqlManager::GetRespawnPositionForPlayer(uint32 p_PlayerID)
 void SqlManager::AddNewPointsSetForPlayer(uint32 p_PlayerID)
 {
 	std::string l_Query = "INSERT INTO `characters_point` (`characterID`, `free_point`, `force`, `stamina`, `dexterity`) values('" + std::to_string(p_PlayerID) + "', '0', '0', '0', '0');";
-	mysql_query(&m_MysqlCharacters, l_Query.c_str());
+	Exec(m_MysqlCharacters, l_Query);
 }
 
 PointsSet SqlManager::GetPointsSetForPlayer(uint32 p_PlayerID)
 {
 	std::string l_Query = "SELECT `free_point`, `force`, `stamina`, `dexterity` FROM characters_point WHERE characterID = '" + std::to_string(p_PlayerID) + "'";
-	mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
 	uint16 l_FreePoints = 0;
 	uint16 l_Force = 0;
 	uint16 l_Stamina = 0;
 	uint16 l_Dexterity = 0;
 
-	MYSQL_RES *l_Result = NULL;
-	MYSQL_ROW l_Row;
 	bool l_Exist = false;
-	l_Result = mysql_use_result(&m_MysqlCharacters);
-	while ((l_Row = mysql_fetch_row(l_Result)))
+	while (sqlite3_step(l_Stmt) == SQLITE_ROW)
 	{
 		l_Exist = true;
-		l_FreePoints = atoi(l_Row[0]);
-		l_Force = atoi(l_Row[1]);
-		l_Stamina = atoi(l_Row[2]);
-		l_Dexterity = atoi(l_Row[3]);
+		l_FreePoints = sqlite3_column_int(l_Stmt, 0);
+		l_Force = sqlite3_column_int(l_Stmt, 1);
+		l_Stamina = sqlite3_column_int(l_Stmt, 2);
+		l_Dexterity = sqlite3_column_int(l_Stmt, 3);
 	}
-	mysql_free_result(l_Result);
+	sqlite3_finalize(l_Stmt);
 
 	if (!l_Exist)
 	{
@@ -396,7 +402,7 @@ void SqlManager::SavePlayer(Player* p_Player)
     {
         /// CHECK 
         std::string l_Query = "UPDATE characters_spells SET `cooldown` = '" + std::to_string((*l_It).second) + "' WHERE spellID = '" + std::to_string((*l_It).first) + "' AND characterID = '" + std::to_string(p_Player->GetID()) + "';";
-        mysql_query(&m_MysqlCharacters, l_Query.c_str());
+        Exec(m_MysqlCharacters, l_Query);
     }
 
     /// Save QuestsProgess
@@ -409,10 +415,10 @@ void SqlManager::SavePlayer(Player* p_Player)
         {
             /// Remove it from quest in Progress
             std::string l_Query = "DELETE FROM quest_objectif_progress WHERE characterID = '" + std::to_string(p_Player->GetID()) + "' AND questID = '" + std::to_string((*l_It).first) + "';";
-            mysql_query(&m_MysqlCharacters, l_Query.c_str());
+            Exec(m_MysqlCharacters, l_Query);
         /// CHECK 
             l_Query = "REPLACE INTO quest_objectif_progress (characterID, questID, objectifID, data0) VALUES ('" + std::to_string(p_Player->GetID()) + "', '" + std::to_string((*l_It).first) + "', '" + std::to_string((*l_Itr).first) + "', '" + std::to_string((*l_Itr).second->m_Data0) + "');";
-            mysql_query(&m_MysqlCharacters, l_Query.c_str());
+            Exec(m_MysqlCharacters, l_Query);
         }
     }
 
@@ -424,7 +430,7 @@ void SqlManager::SavePlayer(Player* p_Player)
         "', activeTitleID = '" + std::to_string(p_Player->GetActiveTitleID()) +
         "' WHERE characterID = '" + std::to_string(p_Player->GetID()) + "';";
 
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 	UpdatePointsSet(p_Player);
 }
 
@@ -432,32 +438,28 @@ void SqlManager::SaveQuestForPlayer(Player const* p_Player,  Quest const* p_Ques
 {
     /// Save Quest
     std::string l_Query = "INSERT INTO quests_done (characterID, questID) VALUES ('" + std::to_string(p_Player->GetID()) + "', '" + std::to_string(p_Quest->GetID()) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 
     /// Remove it from quest in Progress
     l_Query = "DELETE FROM quest_objectif_progress WHERE characterID = '" + std::to_string(p_Player->GetID()) + "' AND questID = '" + std::to_string(p_Quest->GetID()) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 int32 SqlManager::GetDaysSinceLastQuestDone(Player const* p_Player, uint16 p_QuestID)
 {
     std::string l_Query = "SELECT DATEDIFF(NOW(), MAX(`dateValidate`)) FROM quests_done WHERE characterID = '" + std::to_string(p_Player->GetID()) + "' AND questID = '" + std::to_string(p_QuestID)  + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int16 l_Days = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
     bool l_Exist = false;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        if (l_Row == NULL)
-            break;
-        if (l_Row[0])
-            l_Days = atoi(l_Row[0]);
+        l_Days = sqlite3_column_int(l_Stmt, 0);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return l_Days;
 }
@@ -465,39 +467,31 @@ int32 SqlManager::GetDaysSinceLastQuestDone(Player const* p_Player, uint16 p_Que
 void SqlManager::InitializeListSkinsForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT skinID FROM characters_skins WHERE characterID = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        if (l_Row == NULL)
-            break;
-        if (l_Row[0])
-        {
-            uint16 l_ID = atoi(l_Row[0]);
-            p_Player->LearnSkin(l_ID);
-        }
+        uint16 l_ID = sqlite3_column_int(l_Stmt, 0);
+        p_Player->LearnSkin(l_ID);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 }
 void SqlManager::InitializeListEquipmentsForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT typeID, itemID FROM characters_equipments WHERE characterID = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     eTypeEquipment l_Type = eTypeEquipment::EQUIP_HEAD;
     uint16 l_ItemID = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Type = (eTypeEquipment)atoi(l_Row[0]);
-        l_ItemID = atoi(l_Row[1]);
+        l_Type = (eTypeEquipment)sqlite3_column_int(l_Stmt, 0);
+        l_ItemID = sqlite3_column_int(l_Stmt, 1);
 
         ItemTemplate* l_ItemTemplate = g_ItemManager->GetItemTemplate(l_ItemID);
         if (l_ItemTemplate == nullptr)
@@ -505,26 +499,25 @@ void SqlManager::InitializeListEquipmentsForPlayer(Player* p_Player)
         Item* l_Item = new Item(p_Player, l_ItemTemplate);
         p_Player->AddEquipment(l_Type, l_Item);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 }
 
 void SqlManager::InitializeListItemForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT slotNb, itemID, stackNb FROM characters_items WHERE characterID = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint8 l_SlotNb = 0;
     uint16 l_ItemID = 0;
     uint8 l_StackNb = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_SlotNb = atoi(l_Row[0]);
-        l_ItemID = atoi(l_Row[1]);
-        l_StackNb = atoi(l_Row[2]);
+        l_SlotNb = sqlite3_column_int(l_Stmt, 0);
+        l_ItemID = sqlite3_column_int(l_Stmt, 1);
+        l_StackNb = sqlite3_column_int(l_Stmt, 2);
 
         ItemTemplate* l_ItemTemplate = g_ItemManager->GetItemTemplate(l_ItemID);
         if (l_ItemTemplate == nullptr)
@@ -533,60 +526,54 @@ void SqlManager::InitializeListItemForPlayer(Player* p_Player)
         l_Item->SetStackNb(l_StackNb);
         p_Player->AddItem(l_SlotNb, l_Item);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 }
 
 void SqlManager::InitializeListTitlesForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT titleID FROM characters_titles WHERE characterID = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        if (l_Row == NULL)
-            break;
-        if (l_Row[0])
-        {
-            uint16 l_ID = atoi(l_Row[0]);
-            p_Player->LearnTitle(l_ID);
-        }
+        uint16 l_ID = sqlite3_column_int(l_Stmt, 0);
+        p_Player->LearnTitle(l_ID);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 }
 
 void SqlManager::InitializeListCurrenciesForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT typeID, value FROM characters_currencies WHERE characterID = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
-
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint8 l_TypeID = 0;
     uint16 l_Value = 0;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_TypeID = atoi(l_Row[0]);
-        l_Value = atoi(l_Row[1]);
+        l_TypeID = sqlite3_column_int(l_Stmt, 0);
+        l_Value = sqlite3_column_int(l_Stmt, 1);
         p_Player->UpdateCurrency((eTypeCurrency)l_TypeID, l_Value);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 }
 
 void SqlManager::UpdatePointsSet(Player const* p_Player)
 {
 	std::string l_Query = "UPDATE `characters_point` SET `free_point` = '" + std::to_string(p_Player->GetPointsSet().GetStat(eStats::Free)) + "', `force` = '" + std::to_string(p_Player->GetPointsSet().GetStat(eStats::Force)) + "', `stamina` = '" + std::to_string(p_Player->GetPointsSet().GetStat(eStats::Stamina)) + "', `dexterity` = '" + std::to_string(p_Player->GetPointsSet().GetStat(eStats::Dexterity)) + "' WHERE characterID = '" + std::to_string(p_Player->GetID()) + "';";
-	mysql_query(&m_MysqlCharacters, l_Query.c_str());
+	Exec(m_MysqlCharacters, l_Query);
 }
 
 CreatureTemplate SqlManager::GetCreatureTemplate(uint16 p_Entry)
 {
     std::string l_Query = "SELECT `skinID`, `name`, `level`, `force`, `stamina`, `dexterity`, `speed`, `xp`, `state`, `maxRay`, `maxVision`,`movingTimeMin`, `movingTimeMax`, `stopTimeMin`, `stopTimeMax`, `respawnTime`, `rank`, `aiType`, `faction`, `rewardID` FROM creature_template WHERE `entry` = '" + std::to_string(p_Entry) + "'";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int16 l_SkinID = 0;
     std::string l_Name = "";
@@ -609,35 +596,32 @@ CreatureTemplate SqlManager::GetCreatureTemplate(uint16 p_Entry)
     uint8 l_Faction = 0;
     int32 l_RewardID = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_SkinID = atoi(l_Row[0]);
-        l_Name = std::string(l_Row[1]);
-        l_Lvl = atoi(l_Row[2]);
-        l_Force = atoi(l_Row[3]);
-        l_Stamina = atoi(l_Row[4]);
-        l_Dexterity = atoi(l_Row[5]);
-        l_Speed = atoi(l_Row[6]);
-        l_Xp = atoi(l_Row[7]);
-        l_State = atoi(l_Row[8]);
-        l_MaxRay = atoi(l_Row[9]);
-        l_MaxVision = atoi(l_Row[10]);
-        l_RespawnTime = atoi(l_Row[11]);
-        l_MovingTimeMin = (float)atof(l_Row[12]);
-        l_MovingTimeMax = (float)atof(l_Row[13]);
-        l_StopTimeMin = (float)atof(l_Row[14]);
-        l_StopTimeMax = (float)atof(l_Row[15]);
-        l_RespawnTime = atoi(l_Row[16]);
-        l_Rank = atoi(l_Row[17]);
-        l_AiType = atoi(l_Row[18]);
-        l_Faction = atoi(l_Row[19]);
-        l_RewardID = atoi(l_Row[20]);
+        l_SkinID = sqlite3_column_int(l_Stmt, 0);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 1);
+        l_Lvl = sqlite3_column_int(l_Stmt, 2);
+        l_Force = sqlite3_column_int(l_Stmt, 3);
+        l_Stamina = sqlite3_column_int(l_Stmt, 4);
+        l_Dexterity = sqlite3_column_int(l_Stmt, 5);
+        l_Speed = sqlite3_column_int(l_Stmt, 6);
+        l_Xp = sqlite3_column_int(l_Stmt, 7);
+        l_State = sqlite3_column_int(l_Stmt, 8);
+        l_MaxRay = sqlite3_column_int(l_Stmt, 9);
+        l_MaxVision = sqlite3_column_int(l_Stmt, 10);
+        l_RespawnTime = sqlite3_column_int(l_Stmt, 11);
+        l_MovingTimeMin = (float)sqlite3_column_double(l_Stmt, 12);
+        l_MovingTimeMax = (float)sqlite3_column_double(l_Stmt, 13);
+        l_StopTimeMin = (float)sqlite3_column_double(l_Stmt, 14);
+        l_StopTimeMax = (float)sqlite3_column_double(l_Stmt, 15);
+        l_RespawnTime = sqlite3_column_int(l_Stmt, 16);
+        l_Rank = sqlite3_column_int(l_Stmt, 17);
+        l_AiType = sqlite3_column_int(l_Stmt, 18);
+        l_Faction = sqlite3_column_int(l_Stmt, 19);
+        l_RewardID = sqlite3_column_int(l_Stmt, 20);
         return CreatureTemplate(p_Entry, l_SkinID, l_Name, l_Lvl, l_Force, l_Stamina, l_Dexterity, l_Speed, l_Xp, l_State, l_MaxRay, l_MaxVision, l_MovingTimeMin, l_MovingTimeMax, l_StopTimeMin, l_StopTimeMax, l_RespawnTime, l_Rank, l_AiType, (eFactionType)l_Faction, l_RewardID);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return CreatureTemplate();
 }
@@ -645,31 +629,27 @@ CreatureTemplate SqlManager::GetCreatureTemplate(uint16 p_Entry)
 uint16 SqlManager::AddNewCreature(uint16 p_Map, uint16 p_Entry, uint32 p_PosX, uint32 p_PosY)
 {
     std::string l_Query = "insert  into `creature`(`mapID`,`entry`,`posX`,`posY`) values('" + std::to_string(p_Map) + "', '" + std::to_string(p_Entry) + "', '" + std::to_string(p_PosX) + "', '" + std::to_string(p_PosY) + "')";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    Exec(m_MysqlWorld, l_Query);
     l_Query = "SELECT MAX(`id`) FROM `creature`";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    if (l_Result == NULL)
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        printf("FAILD SQL ADD CREATURE\n");
-        return 0;
+        l_Id = sqlite3_column_int(l_Stmt, 0);
     }
-    while ((l_Row = mysql_fetch_row(l_Result)))
-    {
-        l_Id = atoi(l_Row[0]);
-    }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return l_Id;
 }
 
 bool SqlManager::InitializeAnimationUnitTemplate(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `entry`, `typeID`, `skinID`, `name`, `stopTimeMin`, `stopTimeMax` FROM animation_unit_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Entry = 0;
     uint16 l_TypeID = 0;
@@ -678,20 +658,17 @@ bool SqlManager::InitializeAnimationUnitTemplate(UnitManager* p_CreatureManager)
     float l_StopTimeMin = 0.0f;
     float l_StopTimeMax = 0.0f;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Entry = atoi(l_Row[0]);
-        l_TypeID = atoi(l_Row[1]);
-        l_SkinID = atoi(l_Row[2]);
-        l_Name = std::string(l_Row[3]);
-        l_StopTimeMin = atof(l_Row[4]);
-        l_StopTimeMax = atof(l_Row[5]);
+        l_Entry = sqlite3_column_int(l_Stmt, 0);
+        l_TypeID = sqlite3_column_int(l_Stmt, 1);
+        l_SkinID = sqlite3_column_int(l_Stmt, 2);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 3);
+        l_StopTimeMin = sqlite3_column_double(l_Stmt, 4);
+        l_StopTimeMax = sqlite3_column_double(l_Stmt, 5);
         p_CreatureManager->AddAnimationUnitTemplate(AnimationUnitTemplate(l_Entry, l_SkinID, l_TypeID, l_Name, l_StopTimeMin, l_StopTimeMax));
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -699,7 +676,9 @@ bool SqlManager::InitializeAnimationUnitTemplate(UnitManager* p_CreatureManager)
 bool SqlManager::InitializeCreatureTemplate(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `entry`, `skinID`, `name`, `level`, `force`, `stamina`, `dexterity`, `speed`, `xp`, `state`, `maxRay`, `maxVision`, `movingTimeMin`, `movingTimeMax`, `stopTimeMin`, `stopTimeMax`, `respawnTime`, `rank`, `aiType`, `faction`, `rewardID` FROM creature_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint32 l_Entry = 0;
     uint8 l_SkinID = 0;
@@ -723,35 +702,32 @@ bool SqlManager::InitializeCreatureTemplate(UnitManager* p_CreatureManager)
     uint8 l_Faction = 0;
     int32 l_RewardID = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Entry = atoi(l_Row[0]);
-        l_SkinID = atoi(l_Row[1]);
-        l_Name = std::string(l_Row[2]);
-        l_Lvl = atoi(l_Row[3]);
-        l_Force = atoi(l_Row[4]);
-        l_Stamina = atoi(l_Row[5]);
-        l_Dexterity = atoi(l_Row[6]);
-        l_Speed = atoi(l_Row[7]);
-        l_Xp = atoi(l_Row[8]);
-        l_State = atoi(l_Row[9]);
-        l_MaxRay = atoi(l_Row[10]);
-        l_MaxVision = atoi(l_Row[11]);
-        l_MovingTimeMin = (float)atof(l_Row[12]);
-        l_MovingTimeMax = (float)atof(l_Row[13]);
-        l_StopTimeMin = (float)atof(l_Row[14]);
-        l_StopTimeMax = (float)atof(l_Row[15]);
-        l_RespawnTime = atoi(l_Row[16]);
-        l_Rank = atoi(l_Row[17]);
-        l_AiType = atoi(l_Row[18]);
-        l_Faction = atoi(l_Row[19]);
-        l_RewardID = atoi(l_Row[20]);
+        l_Entry = sqlite3_column_int(l_Stmt, 0);
+        l_SkinID = sqlite3_column_int(l_Stmt, 1);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 2);
+        l_Lvl = sqlite3_column_int(l_Stmt, 3);
+        l_Force = sqlite3_column_int(l_Stmt, 4);
+        l_Stamina = sqlite3_column_int(l_Stmt, 5);
+        l_Dexterity = sqlite3_column_int(l_Stmt, 6);
+        l_Speed = sqlite3_column_int(l_Stmt, 7);
+        l_Xp = sqlite3_column_int(l_Stmt, 8);
+        l_State = sqlite3_column_int(l_Stmt, 9);
+        l_MaxRay = sqlite3_column_int(l_Stmt, 10);
+        l_MaxVision = sqlite3_column_int(l_Stmt, 11);
+        l_MovingTimeMin = (float)sqlite3_column_double(l_Stmt, 12);
+        l_MovingTimeMax = (float)sqlite3_column_double(l_Stmt, 13);
+        l_StopTimeMin = (float)sqlite3_column_double(l_Stmt, 14);
+        l_StopTimeMax = (float)sqlite3_column_double(l_Stmt, 15);
+        l_RespawnTime = sqlite3_column_int(l_Stmt, 16);
+        l_Rank = sqlite3_column_int(l_Stmt, 17);
+        l_AiType = sqlite3_column_int(l_Stmt, 18);
+        l_Faction = sqlite3_column_int(l_Stmt, 19);
+        l_RewardID = sqlite3_column_int(l_Stmt, 20);
         p_CreatureManager->AddCreatureTemplate(CreatureTemplate(l_Entry, l_SkinID, l_Name, l_Lvl, l_Force, l_Stamina, l_Dexterity, l_Speed, l_Xp, l_State, l_MaxRay, l_MaxVision, l_MovingTimeMin, l_MovingTimeMax, l_StopTimeMin, l_StopTimeMax, l_RespawnTime, l_Rank, l_AiType, (eFactionType)l_Faction, l_RewardID));
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -759,21 +735,20 @@ bool SqlManager::InitializeCreatureTemplate(UnitManager* p_CreatureManager)
 bool SqlManager::InitializeSpellsForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT `spellID`, `cooldown` FROM characters_spells WHERE `characterID` = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_SpellID = 0;
     uint64 l_Cooldown = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_SpellID = atoi(l_Row[0]);
-        l_Cooldown = atoi(l_Row[1]);
+        l_SpellID = sqlite3_column_int(l_Stmt, 0);
+        l_Cooldown = sqlite3_column_int(l_Stmt, 1);
         p_Player->AddSpellID(l_SpellID, l_Cooldown);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -781,7 +756,9 @@ bool SqlManager::InitializeSpellsForPlayer(Player* p_Player)
 bool SqlManager::InitializeQuestsProgessForPlayer(Player* p_Player)
 {
     std::string l_Query = "SELECT `questID`, `objectifID`, `data0`, `data1`, `data2`, `data3` FROM quest_objectif_progress WHERE `characterID` = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_QuestID = 0;
     uint8 l_ObjectifID = 0;
@@ -790,17 +767,14 @@ bool SqlManager::InitializeQuestsProgessForPlayer(Player* p_Player)
     int16 l_Data2 = -1;
     int16 l_Data3 = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_QuestID = atoi(l_Row[0]);
-        l_ObjectifID = atoi(l_Row[1]);
-        l_Data0 = atoi(l_Row[2]);
-        l_Data1 = atoi(l_Row[3]);
-        l_Data2 = atoi(l_Row[4]);
-        l_Data3 = atoi(l_Row[5]);
+        l_QuestID = sqlite3_column_int(l_Stmt, 0);
+        l_ObjectifID = sqlite3_column_int(l_Stmt, 1);
+        l_Data0 = sqlite3_column_int(l_Stmt, 2);
+        l_Data1 = sqlite3_column_int(l_Stmt, 3);
+        l_Data2 = sqlite3_column_int(l_Stmt, 4);
+        l_Data3 = sqlite3_column_int(l_Stmt, 5);
 
         Quest* l_Quest = p_Player->GetQuest(l_QuestID);
         if (l_Quest == nullptr)
@@ -810,7 +784,7 @@ bool SqlManager::InitializeQuestsProgessForPlayer(Player* p_Player)
         }
         l_Quest->SetDataOfObjectif(l_ObjectifID, 0, l_Data0); /* Actually we only use data0 */
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -819,21 +793,20 @@ bool SqlManager::InitializeQuestsProgessForPlayer(Player* p_Player)
 bool SqlManager::InitializeSpellsBinds(Player* p_Player)
 {
     std::string l_Query = "SELECT `spellID`, `bindID` FROM characters_spell_binds WHERE `characterID` = '" + std::to_string(p_Player->GetID()) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_SpellID = 0;
     uint8 l_BindID = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_SpellID = atoi(l_Row[0]);
-        l_BindID = atoi(l_Row[1]);
+        l_SpellID = sqlite3_column_int(l_Stmt, 0);
+        l_BindID = sqlite3_column_int(l_Stmt, 1);
         p_Player->AddSpellBindToKey(l_SpellID, l_BindID);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -841,7 +814,7 @@ bool SqlManager::InitializeSpellsBinds(Player* p_Player)
 void SqlManager::AddSpellForPlayer(Player* p_Player, uint16 l_SpellID)
 {
     std::string l_Query = "REPLACE INTO `characters_spells` (characterID, spellID) VALUES ('" + std::to_string(p_Player->GetID()) + "', '" + std::to_string(l_SpellID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
     p_Player->AddSpellID(l_SpellID, 0);
 }
 
@@ -849,42 +822,41 @@ void SqlManager::RemoveSpellForPlayer(Player* p_Player, uint16 l_SpellID)
 {
     std::string l_Query = "DELETE FROM `characters_spells` WHERE characterID = '" + std::to_string(p_Player->GetID()) + "' and spellID = '" + std::to_string(l_SpellID) + "';";
     printf("----> %s\n", l_Query.c_str());
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::AddSpellBind(Player* p_Player, uint16 l_SpellID, uint8 l_BindID)
 {
     std::string l_Query = "DELETE FROM `characters_spell_binds` WHERE bindID = '" + std::to_string(l_BindID) + "' AND characterID = '" + std::to_string(p_Player->GetID()) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
     l_Query = "INSERT INTO `characters_spell_binds` (characterID, spellID, bindID) VALUES ('" + std::to_string(p_Player->GetID()) + "', '" + std::to_string(l_SpellID) + "', '" + std::to_string(l_BindID) + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
     p_Player->AddSpellBindToKey(l_SpellID, l_BindID);
 }
 
 void SqlManager::RemoveSpellBind(Player* p_Player, uint16 l_SpellID)
 {
     std::string l_Query = "DELETE FROM `characters_spell_binds` WHERE spellID = '" + std::to_string(l_SpellID) + "' AND characterID = '" + std::to_string(p_Player->GetID()) + "';";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 bool SqlManager::InitializeKeyBindsForAccount(uint32 p_Account, Player* p_Player)
 {
     std::string l_Query = "SELECT `typeID`, `key` FROM account_key_binds WHERE `accountID` = '" + std::to_string(p_Account) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint8 l_TypeID = 0;
     uint8 l_Key = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_TypeID = atoi(l_Row[0]);
-        l_Key = atoi(l_Row[1]);
+        l_TypeID = sqlite3_column_int(l_Stmt, 0);
+        l_Key = sqlite3_column_int(l_Stmt, 1);
         p_Player->AddKeyBoardBind((eKeyBoardAction)l_TypeID, l_Key);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -892,7 +864,9 @@ bool SqlManager::InitializeKeyBindsForAccount(uint32 p_Account, Player* p_Player
 bool SqlManager::InitializeGossip(UnitManager* p_CreatureManager, RequiredManager* p_RequiredManager)
 {
     std::string l_Query = "SELECT `id`, `requiredID`, `typeUnit`, `unitEntry`, `type`, `data0`, `data1`, `msg` FROM gossip";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_ID = 0;
     int32 l_RequiredID = -1;
@@ -903,20 +877,18 @@ bool SqlManager::InitializeGossip(UnitManager* p_CreatureManager, RequiredManage
     uint32 l_Data1 = 0;
     std::string l_Msg = "";
     bool l_Automatic = true;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_ID = atoi(l_Row[0]);
-        l_RequiredID = atoi(l_Row[1]);
-        l_TypeUnit = atoi(l_Row[2]);
-        l_UnitEntry = atoi(l_Row[3]);
-        l_GossipType = atoi(l_Row[4]);
-        l_Data0 = atoi(l_Row[5]);
-        if (l_Row[6])
-            l_Data1 = atoi(l_Row[6]);
-        l_Msg = std::string(l_Row[7]);
+        l_ID = sqlite3_column_int(l_Stmt, 0);
+        l_RequiredID = sqlite3_column_int(l_Stmt, 1);
+        l_TypeUnit = sqlite3_column_int(l_Stmt, 2);
+        l_UnitEntry = sqlite3_column_int(l_Stmt, 3);
+        l_GossipType = sqlite3_column_int(l_Stmt, 4);
+        l_Data0 = sqlite3_column_int(l_Stmt, 5);
+        if (sqlite3_column_type(l_Stmt, 6) != SQLITE_NULL)
+            l_Data1 = sqlite3_column_int(l_Stmt, 6);
+        l_Msg = (const char*) sqlite3_column_text(l_Stmt, 7);
         Required* l_Required = nullptr;
         if (l_RequiredID >= 0) /// -1 if no required
             l_Required = p_RequiredManager->GetRequiered(l_RequiredID);
@@ -927,7 +899,7 @@ bool SqlManager::InitializeGossip(UnitManager* p_CreatureManager, RequiredManage
 
         p_CreatureManager->AddGossip(Gossip(l_ID, l_Required, (TypeUnit)l_TypeUnit, l_UnitEntry, l_Automatic, (eGossipType)l_GossipType, l_Data0, l_Data1, l_Msg));
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -936,7 +908,9 @@ bool SqlManager::InitializeGossip(UnitManager* p_CreatureManager, RequiredManage
 bool SqlManager::InitializeAnimationUnit(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `id`, `entry`, `mapID`, `posX`, `posY` FROM animation_unit";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_Entry = 0;
@@ -944,16 +918,13 @@ bool SqlManager::InitializeAnimationUnit(UnitManager* p_CreatureManager)
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Entry = atoi(l_Row[1]);
-        l_MapID = atoi(l_Row[2]);
-        l_PosX = atoi(l_Row[3]);
-        l_PosY = atoi(l_Row[4]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Entry = sqlite3_column_int(l_Stmt, 1);
+        l_MapID = sqlite3_column_int(l_Stmt, 2);
+        l_PosX = sqlite3_column_int(l_Stmt, 3);
+        l_PosY = sqlite3_column_int(l_Stmt, 4);
         MapTemplate* l_MapTemplate = g_MapManager->GetMapTemplate(l_MapID);
 
 
@@ -966,7 +937,7 @@ bool SqlManager::InitializeAnimationUnit(UnitManager* p_CreatureManager)
         l_MapTemplate->AddAnimationUnitMapTemplate(AnimationUnitMapTemplate(l_Id, l_MapID, p_CreatureManager->GetAnimationUnitTemplate(l_Entry), l_PosX, l_PosY, p_CreatureManager->GetGossipListFor(TypeUnit::ANIMATIONUNIT, l_Entry)));
         //l_MapTemplate->AddUnit(l_Creature);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -974,7 +945,9 @@ bool SqlManager::InitializeAnimationUnit(UnitManager* p_CreatureManager)
 bool SqlManager::InitializeCreature(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `id`, `entry`, `mapID`, `posX`, `posY` FROM creature";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_Entry = 0;
@@ -982,16 +955,13 @@ bool SqlManager::InitializeCreature(UnitManager* p_CreatureManager)
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Entry = atoi(l_Row[1]);
-        l_MapID = atoi(l_Row[2]);
-        l_PosX = atoi(l_Row[3]);
-        l_PosY = atoi(l_Row[4]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Entry = sqlite3_column_int(l_Stmt, 1);
+        l_MapID = sqlite3_column_int(l_Stmt, 2);
+        l_PosX = sqlite3_column_int(l_Stmt, 3);
+        l_PosY = sqlite3_column_int(l_Stmt, 4);
 
         /*Creature* l_Creature = new Creature(l_Id, l_Entry, p_CreatureManager->GetCreatureTemplate(l_Entry), l_MapID, l_PosX, l_PosY);
         if (p_CreatureManager->GetGossipListFor(TypeUnit::CREATURE, l_Entry) != nullptr)
@@ -1008,7 +978,7 @@ bool SqlManager::InitializeCreature(UnitManager* p_CreatureManager)
         l_MapTemplate->AddCreatureMapTemplate(CreatureMapTemplate(l_Id, l_MapID, p_CreatureManager->GetCreatureTemplate(l_Entry), l_PosX, l_PosY, p_CreatureManager->GetGossipListFor(TypeUnit::CREATURE, l_Entry)));
         //l_MapTemplate->AddUnit(l_Creature);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -1016,7 +986,9 @@ bool SqlManager::InitializeCreature(UnitManager* p_CreatureManager)
 bool  SqlManager::InitializeSpells()
 {
     std::string l_Query = "SELECT `id`, `level`, `visualIDUnder`, `visualID`, `visualIDTargetUnder`, `visualIDTarget`,`castTime`, `cooldown`, `duration`, `speed`,`resourceType`, `resourceNb`, `effect1`, `effect2`, `effect3`, `effect4`, `name` FROM spell_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint8 l_Level = 0;
@@ -1033,26 +1005,23 @@ bool  SqlManager::InitializeSpells()
     std::vector<int32> l_EffectList;
     std::string l_Name = "";
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Level = atoi(l_Row[1]);
-        l_VisualIDUnder = atoi(l_Row[2]);
-        l_VisualID = atoi(l_Row[3]);
-        l_VisualIDTargetUnder = atoi(l_Row[4]);
-        l_VisualIDTarget = atoi(l_Row[5]);
-        l_CastTime = atoi(l_Row[6]);
-        l_Cooldown = atoi(l_Row[7]);
-        l_Duration = atoi(l_Row[8]);
-        l_Speed = (float)atof(l_Row[9]);
-        l_ResourceType = atoi(l_Row[10]);
-        l_ResourceNb = atoi(l_Row[11]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Level = sqlite3_column_int(l_Stmt, 1);
+        l_VisualIDUnder = sqlite3_column_int(l_Stmt, 2);
+        l_VisualID = sqlite3_column_int(l_Stmt, 3);
+        l_VisualIDTargetUnder = sqlite3_column_int(l_Stmt, 4);
+        l_VisualIDTarget = sqlite3_column_int(l_Stmt, 5);
+        l_CastTime = sqlite3_column_int(l_Stmt, 6);
+        l_Cooldown = sqlite3_column_int(l_Stmt, 7);
+        l_Duration = sqlite3_column_int(l_Stmt, 8);
+        l_Speed = (float)sqlite3_column_double(l_Stmt, 9);
+        l_ResourceType = sqlite3_column_int(l_Stmt, 10);
+        l_ResourceNb = sqlite3_column_int(l_Stmt, 11);
         for (uint8 i = 0; i < MAX_EFFECTS_FOR_SPELL; ++i)
-            l_EffectList.push_back(atoi(l_Row[12 + i]));
-        l_Name = std::string(l_Row[12 + MAX_EFFECTS_FOR_SPELL]);
+            l_EffectList.push_back(sqlite3_column_int(l_Stmt, 12 + i));
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 12 + MAX_EFFECTS_FOR_SPELL);
 
         SpellTemplate* l_Spell = new SpellTemplate(l_Id);
         l_Spell->SetLevel(l_Level);
@@ -1076,14 +1045,16 @@ bool  SqlManager::InitializeSpells()
         g_SpellManager->AddSpell(l_Spell);
         l_EffectList.clear();
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 bool  SqlManager::InitializeSpellEffects()
 {
     std::string l_Query = "SELECT `id`, `effectType`, `target`, `basepoint1`, `basepoint2`, `basepoint3`, `basepoint4`, `radiusMin`, `radiusMax` FROM spell_effect";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint8 l_EffectType = 0;
@@ -1095,32 +1066,31 @@ bool  SqlManager::InitializeSpellEffects()
     float l_RadiusMin = 0.0f;
     float l_RadiusMax = 0.0f;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_EffectType = atoi(l_Row[1]);
-        l_Target = atoi(l_Row[2]);
-        l_BasePoint1 = atoi(l_Row[3]);
-        l_BasePoint2 = atoi(l_Row[4]);
-        l_BasePoint3 = atoi(l_Row[5]);
-        l_BasePoint4 = atoi(l_Row[6]);
-        l_RadiusMin = (float)atof(l_Row[7]);
-        l_RadiusMax = (float)atof(l_Row[8]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_EffectType = sqlite3_column_int(l_Stmt, 1);
+        l_Target = sqlite3_column_int(l_Stmt, 2);
+        l_BasePoint1 = sqlite3_column_int(l_Stmt, 3);
+        l_BasePoint2 = sqlite3_column_int(l_Stmt, 4);
+        l_BasePoint3 = sqlite3_column_int(l_Stmt, 5);
+        l_BasePoint4 = sqlite3_column_int(l_Stmt, 6);
+        l_RadiusMin = (float)sqlite3_column_double(l_Stmt, 7);
+        l_RadiusMax = (float)sqlite3_column_double(l_Stmt, 8);
 
         SpellEffect l_SpellEffect(l_Id, (SpellEffectType)l_EffectType, (SpellTarget)l_Target, l_BasePoint1, l_BasePoint2, l_BasePoint3, l_BasePoint4, l_RadiusMin, l_RadiusMax);
         g_SpellManager->AddSpellEffect(l_SpellEffect);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 bool SqlManager::InitializeRequired(RequiredManager* p_RequiredManager)
 {
     std::string l_Query = "SELECT `id`, `requiredID`, `typeID`, `data0`, `data1` FROM sub_required";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_RequiredID = 0;
@@ -1128,43 +1098,39 @@ bool SqlManager::InitializeRequired(RequiredManager* p_RequiredManager)
     uint32 l_Data0 = 0;
     uint32 l_Data1 = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_RequiredID = atoi(l_Row[1]);
-        l_TypeID = (eRequiredType)atoi(l_Row[2]);
-        l_Data0 = atoi(l_Row[3]);
-        l_Data1 = atoi(l_Row[4]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_RequiredID = sqlite3_column_int(l_Stmt, 1);
+        l_TypeID = (eRequiredType)sqlite3_column_int(l_Stmt, 2);
+        l_Data0 = sqlite3_column_int(l_Stmt, 3);
+        l_Data1 = sqlite3_column_int(l_Stmt, 4);
 
         p_RequiredManager->AddSubRequiered(l_RequiredID, (eRequiredType)l_TypeID, l_Data0, l_Data1);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 bool    SqlManager::InitializeRewards(RequiredManager* p_RequiredManager)
 {
     std::string l_Query = "SELECT `rewardID`, `requiredID`, `rewardType`, `chancePct`, `data0`, `data1` FROM reward";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     int32 l_RequiredID = -1;
     eRewardType l_RewardType = eRewardType::REWARD_CURRENCY;
     float l_ChancePct = 0.0f;
     std::vector<int32> l_Data;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
 
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_RequiredID = atoi(l_Row[1]);
-        l_RewardType = (eRewardType)atoi(l_Row[2]);
-        l_ChancePct = (float)atof(l_Row[3]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_RequiredID = sqlite3_column_int(l_Stmt, 1);
+        l_RewardType = (eRewardType)sqlite3_column_int(l_Stmt, 2);
+        l_ChancePct = (float)sqlite3_column_double(l_Stmt, 3);
         Required* l_Required = nullptr;
 
         if (l_RequiredID >= 0) /// -1 if no required
@@ -1173,10 +1139,10 @@ bool    SqlManager::InitializeRewards(RequiredManager* p_RequiredManager)
         SubReward l_SubReward(l_RewardType, l_Required, l_ChancePct);
         for (uint8 i = 0; i < 2; i++)
         {
-            if (atoi(l_Row[3 + 1 + i]) < 0)
+            if (sqlite3_column_int(l_Stmt, 3 + 1 + i) < 0)
                 break;
 
-            l_SubReward.AddData(atoi(l_Row[3 + 1 + i]));
+            l_SubReward.AddData(sqlite3_column_int(l_Stmt, 3 + 1 + i));
         }
         Reward* l_Reward = g_RewardManager->GetReward(l_Id);
         if (l_Reward == nullptr)
@@ -1186,7 +1152,7 @@ bool    SqlManager::InitializeRewards(RequiredManager* p_RequiredManager)
         }
         l_Reward->AddSubReward(l_SubReward);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
@@ -1194,7 +1160,9 @@ bool  SqlManager::InitializeItems(RequiredManager* p_RequiredManager)
 {
     /// QUEST TEMPLATE
     std::string l_Query = "SELECT `id`, `type`, `subType`, `name`, `level`, `stackMax`, `rareLevel`, `requiredID`, `price`, `data0`, `data1`, `data2`, `data3` FROM item";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     eItemType l_Type = eItemType::ITEM_USELESS;
@@ -1208,20 +1176,17 @@ bool  SqlManager::InitializeItems(RequiredManager* p_RequiredManager)
     std::vector<int32> l_Data;
     Required* l_Required = nullptr;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Type = (eItemType)atoi(l_Row[1]);
-        l_SubType = atoi(l_Row[2]);
-        l_Name = std::string(l_Row[3]);
-        l_Level = atoi(l_Row[4]);
-        l_StackNB = atoi(l_Row[5]);
-        l_RareLevel = (eItemRareLevel)atoi(l_Row[6]);
-        l_RequiredID = atoi(l_Row[7]);
-        l_Price = atoi(l_Row[8]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Type = (eItemType)sqlite3_column_int(l_Stmt, 1);
+        l_SubType = sqlite3_column_int(l_Stmt, 2);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 3);
+        l_Level = sqlite3_column_int(l_Stmt, 4);
+        l_StackNB = sqlite3_column_int(l_Stmt, 5);
+        l_RareLevel = (eItemRareLevel)sqlite3_column_int(l_Stmt, 6);
+        l_RequiredID = sqlite3_column_int(l_Stmt, 7);
+        l_Price = sqlite3_column_int(l_Stmt, 8);
 
         if (l_RequiredID >= 0) /// -1 if no required
             l_Required = p_RequiredManager->GetRequiered(l_RequiredID);
@@ -1229,13 +1194,13 @@ bool  SqlManager::InitializeItems(RequiredManager* p_RequiredManager)
 
         for (uint8 i = 0; i < 4; i++)
         {
-            if (atoi(l_Row[8 + 1 + i]) < 0)
+            if (sqlite3_column_int(l_Stmt, 8 + 1 + i) < 0)
                 break;
-            l_ItemTemplate->AddData(atoi(l_Row[8 + 1 + i]));
+            l_ItemTemplate->AddData(sqlite3_column_int(l_Stmt, 8 + 1 + i));
         }
         g_ItemManager->AddItemTemplate(l_ItemTemplate);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
@@ -1243,30 +1208,30 @@ bool  SqlManager::InitializeQuests()
 {
     /// QUEST TEMPLATE
     std::string l_Query = "SELECT `id`, `repetitionType`, `name`  FROM quest_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint8 l_RepetitionType = 0;
     std::string l_Name = "";
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_RepetitionType = atoi(l_Row[1]);
-        l_Name = std::string(l_Row[2]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_RepetitionType = sqlite3_column_int(l_Stmt, 1);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 2);
 
         //printf("Add Quest %d %d %s\n", l_Id, l_RepetitionType, l_Name.c_str());
         QuestTemplate* l_QuestTempalte = new QuestTemplate(l_Id, (eRepetitionType)l_RepetitionType, l_Name);
         g_QuestManager->AddQuestTemplate(l_QuestTempalte);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     /// OBJECTIFS
     l_Query = "SELECT `questID`, `id`, `typeID`, `data0`, `data1`, `data2`, `data3`, `entitled` FROM objectif_quest_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint8 l_IdObjective = 0;
     uint16 l_QuestID = 0;
@@ -1277,22 +1242,21 @@ bool  SqlManager::InitializeQuests()
     int16 l_Data3 = 0;
     std::string l_Entitled = "";
 
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_QuestID = atoi(l_Row[0]);
-        l_IdObjective = atoi(l_Row[1]);
-        l_TypeID = atoi(l_Row[2]);
-        l_Data0 = atoi(l_Row[3]);
-        l_Data1 = atoi(l_Row[4]);
-        l_Data2 = atoi(l_Row[5]);
-        l_Data3 = atoi(l_Row[6]);
-        l_Entitled = std::string(l_Row[7]);
+        l_QuestID = sqlite3_column_int(l_Stmt, 0);
+        l_IdObjective = sqlite3_column_int(l_Stmt, 1);
+        l_TypeID = sqlite3_column_int(l_Stmt, 2);
+        l_Data0 = sqlite3_column_int(l_Stmt, 3);
+        l_Data1 = sqlite3_column_int(l_Stmt, 4);
+        l_Data2 = sqlite3_column_int(l_Stmt, 5);
+        l_Data3 = sqlite3_column_int(l_Stmt, 6);
+        l_Entitled = (const char*) sqlite3_column_text(l_Stmt, 7);
 
         ObjectifQuestTemplate* l_ObjectifQuestTemplate = new ObjectifQuestTemplate(l_IdObjective, (eObjectifType)l_TypeID, l_Data0, l_Data1, l_Data2, l_Data3, l_Entitled);
         g_QuestManager->AddObjectifToTemplate(l_QuestID, l_ObjectifQuestTemplate);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -1300,46 +1264,44 @@ bool  SqlManager::InitializeQuests()
 bool SqlManager::InitializeSkins()
 {
     std::string l_Query = "SELECT `id`, `name` FROM skin";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint8 l_RepetitionType = 0;
     std::string l_Name = "";
     uint8 l_Type = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Name = std::string(l_Row[1]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 1);
         g_Skins[l_Id] = Skin(l_Id, l_Name);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 bool SqlManager::InitializeTitles()
 {
     std::string l_Query = "SELECT `id`, `type`, `name` FROM title";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     std::string l_Name = "";
     uint8 l_Type = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_Type = std::atoi(l_Row[1]);
-        l_Name = std::string(l_Row[2]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_Type = sqlite3_column_int(l_Stmt, 1);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 2);
         g_Titles[l_Id] = Title(l_Id, l_Name, (eTypeTitle)l_Type);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
@@ -1348,22 +1310,21 @@ std::map<uint8, uint16> SqlManager::GetXpLevel()
     std::map<uint8, uint16> l_XpLevel;
 
     std::string l_Query = "SELECT `level`, `xp` FROM level_xp";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint8 l_Level = 0;
     uint16 l_Xp = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Level = atoi(l_Row[0]);
-        l_Xp = atoi(l_Row[1]);
+        l_Level = sqlite3_column_int(l_Stmt, 0);
+        l_Xp = sqlite3_column_int(l_Stmt, 1);
 
         l_XpLevel[l_Level] = l_Xp;
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return l_XpLevel;
 }
@@ -1371,7 +1332,9 @@ std::map<uint8, uint16> SqlManager::GetXpLevel()
 bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManager, RequiredManager* p_RequiredManager, UnitManager* p_UnitManager)
 {
     std::string l_Query = "SELECT `id`, `typeID`, `requiredID`, `blocking`, `skinID`, `duration`, `respawnTime`, `data0`, `data1`, `data2`, `data3` FROM gob_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_TypeID = 0;
@@ -1385,22 +1348,19 @@ bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManag
     uint32 l_Data2 = 0;
     uint32 l_Data3 = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_TypeID = atoi(l_Row[1]);
-        l_RequiredID = atoi(l_Row[2]);
-        l_Blocking = (bool)atoi(l_Row[3]);
-        l_SkinID = atoi(l_Row[4]);
-        l_Duration = atoi(l_Row[5]);
-        l_RespawnTime = atoi(l_Row[6]);
-        l_Data0 = atoi(l_Row[7]);
-        l_Data1 = atoi(l_Row[8]);
-        l_Data2 = atoi(l_Row[9]);
-        l_Data3 = atoi(l_Row[10]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_TypeID = sqlite3_column_int(l_Stmt, 1);
+        l_RequiredID = sqlite3_column_int(l_Stmt, 2);
+        l_Blocking = (bool)sqlite3_column_int(l_Stmt, 3);
+        l_SkinID = sqlite3_column_int(l_Stmt, 4);
+        l_Duration = sqlite3_column_int(l_Stmt, 5);
+        l_RespawnTime = sqlite3_column_int(l_Stmt, 6);
+        l_Data0 = sqlite3_column_int(l_Stmt, 7);
+        l_Data1 = sqlite3_column_int(l_Stmt, 8);
+        l_Data2 = sqlite3_column_int(l_Stmt, 9);
+        l_Data3 = sqlite3_column_int(l_Stmt, 10);
 
         Required* l_Required = nullptr;
         if (l_RequiredID >= 0) /// -1 if no required
@@ -1412,11 +1372,12 @@ bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManag
         l_GameObjectTemplate.SetData(3, l_Data3);
         p_DynamicObjectManager->AddGameObjectTemplate(l_GameObjectTemplate);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     
 
     l_Query = "SELECT `id`, `gobID`, `mapID`, `caseNb` FROM gob";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     l_Id = 0;
     uint16 l_GobID = 0;
@@ -1426,13 +1387,12 @@ bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManag
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
 
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_GobID = atoi(l_Row[1]);
-        l_MapID = atoi(l_Row[2]);
-        l_CaseNb = atoi(l_Row[3]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_GobID = sqlite3_column_int(l_Stmt, 1);
+        l_MapID = sqlite3_column_int(l_Stmt, 2);
+        l_CaseNb = sqlite3_column_int(l_Stmt, 3);
 
         //Map* l_Map = g_MapManager->GetMap(l_MapID);
         MapTemplate* l_MapTemplate = g_MapManager->GetMapTemplate(l_MapID);
@@ -1458,7 +1418,7 @@ bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManag
         l_MapTemplate->AddGobMapTemplate(GobMapTemplate(l_Id, l_MapID, l_GobTemplate, l_CaseNb, l_PosX, l_PosY, p_UnitManager->GetGossipListFor(TypeUnit::GAMEOBJECT, l_GobID)));
         //l_MapTemplate->GetCase(l_CaseNb)->AddDynamicOject(l_Gob);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -1466,7 +1426,9 @@ bool SqlManager::InitializeGameObject(DynamicObjectManager* p_DynamicObjectManag
 bool SqlManager::InitializeZones()
 {
     std::string l_Query = "SELECT `id`, `typeID`, `name`,`mapID`, `caseBegin`, `caseEnd` FROM zone";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_ID = 0;
     uint16 l_TypeID = 0;
@@ -1475,17 +1437,14 @@ bool SqlManager::InitializeZones()
     uint32 l_CaseNbEnd = 0;
     std::string l_Name = "";
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_ID = atoi(l_Row[0]);
-        l_TypeID = atoi(l_Row[1]);
-        l_Name = std::string(l_Row[2]);
-        l_MapID = atoi(l_Row[3]);
-        l_CaseNbBegin = atoi(l_Row[4]);
-        l_CaseNbEnd = atoi(l_Row[5]);
+        l_ID = sqlite3_column_int(l_Stmt, 0);
+        l_TypeID = sqlite3_column_int(l_Stmt, 1);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 2);
+        l_MapID = sqlite3_column_int(l_Stmt, 3);
+        l_CaseNbBegin = sqlite3_column_int(l_Stmt, 4);
+        l_CaseNbEnd = sqlite3_column_int(l_Stmt, 5);
 
         MapTemplate* l_MapTemplate = g_MapManager->GetMapTemplate(l_MapID);
         //Map* l_Map = g_MapManager->GetMap(l_MapID);
@@ -1498,7 +1457,7 @@ bool SqlManager::InitializeZones()
 
         l_MapTemplate->AddZone(l_Zone);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -1506,7 +1465,9 @@ bool SqlManager::InitializeZones()
 bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectManager, UnitManager* p_UnitManager)
 {
     std::string l_Query = "SELECT `id`, `typeID`,`skinID`, `radius`, `data0`, `data1`, `data2`, `data3` FROM areatrigger_template";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_TypeID = 0;
@@ -1517,19 +1478,16 @@ bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectMana
     uint32 l_Data2 = 0;
     uint32 l_Data3 = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_TypeID = atoi(l_Row[1]);
-        l_SkinID = atoi(l_Row[2]);
-        l_Radius = (float)atof(l_Row[3]);
-        l_Data0 = atoi(l_Row[4]);
-        l_Data1 = atoi(l_Row[5]);
-        l_Data2 = atoi(l_Row[6]);
-        l_Data3 = atoi(l_Row[7]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_TypeID = sqlite3_column_int(l_Stmt, 1);
+        l_SkinID = sqlite3_column_int(l_Stmt, 2);
+        l_Radius = (float)sqlite3_column_double(l_Stmt, 3);
+        l_Data0 = sqlite3_column_int(l_Stmt, 4);
+        l_Data1 = sqlite3_column_int(l_Stmt, 5);
+        l_Data2 = sqlite3_column_int(l_Stmt, 6);
+        l_Data3 = sqlite3_column_int(l_Stmt, 7);
 
         AreatriggerTemplate l_AreatriggerTemplate(l_Id, l_Radius, (eAreatriggerType)l_TypeID, l_SkinID);
         l_AreatriggerTemplate.SetData(0, l_Data0);
@@ -1538,11 +1496,12 @@ bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectMana
         l_AreatriggerTemplate.SetData(3, l_Data3);
         p_DynamicObjectManager->AddAreatriggerTemplate(l_AreatriggerTemplate);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
 
     l_Query = "SELECT `id`, `areatriggerID`, `mapID`, `caseNb` FROM areatrigger";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     l_Id = 0;
     uint16 l_AreatriggerID = 0;
@@ -1552,13 +1511,12 @@ bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectMana
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
 
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_AreatriggerID = atoi(l_Row[1]);
-        l_MapID = atoi(l_Row[2]);
-        l_CaseNb = atoi(l_Row[3]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_AreatriggerID = sqlite3_column_int(l_Stmt, 1);
+        l_MapID = sqlite3_column_int(l_Stmt, 2);
+        l_CaseNb = sqlite3_column_int(l_Stmt, 3);
 
         MapTemplate* l_MapTemplate = g_MapManager->GetMapTemplate(l_MapID);
         if (l_MapTemplate == nullptr)
@@ -1579,7 +1537,7 @@ bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectMana
         /*l_MapTemplate->AddUnit(l_Areatrigger);
         l_MapTemplate->GetCase(l_CaseNb)->AddDynamicOject(l_Areatrigger);*/
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return true;
 }
@@ -1587,18 +1545,17 @@ bool SqlManager::InitializeAreatrigger(DynamicObjectManager* p_DynamicObjectMana
 int16 SqlManager::GetLevel(const std::string & p_PlayerName)
 {
     std::string l_Query = "SELECT `level` FROM characters WHERE `name` = '" + p_PlayerName + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int16 l_Level = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Level = atoi(l_Row[0]);
+        l_Level = sqlite3_column_int(l_Stmt, 0);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return l_Level;
 }
@@ -1606,22 +1563,21 @@ int16 SqlManager::GetLevel(const std::string & p_PlayerName)
 WorldPosition SqlManager::GetPosition(const std::string & p_PlayerName)
 {
     std::string l_Query = "SELECT `mapID`, `posX`, `posY` FROM characters WHERE `name` = '" + p_PlayerName + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_MapID = 0;
     uint32 l_PosX = 0;
     uint32 l_PosY = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_MapID = atoi(l_Row[0]);
-        l_PosX = atoi(l_Row[1]);
-        l_PosY = atoi(l_Row[2]);
+        l_MapID = sqlite3_column_int(l_Stmt, 0);
+        l_PosX = sqlite3_column_int(l_Stmt, 1);
+        l_PosY = sqlite3_column_int(l_Stmt, 2);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     WorldPosition l_Position(l_PosX, l_PosY, l_MapID, 0, Orientation::Up);
     return l_Position;
@@ -1630,7 +1586,9 @@ WorldPosition SqlManager::GetPosition(const std::string & p_PlayerName)
 bool SqlManager::InitializeMaps()
 {
     std::string l_Query = "SELECT `id`, `typeID`,`name`, `fileName`, `fileChipsets`, `maxPlayers`, `instance` FROM maps";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        return true;
 
     uint16 l_Id = 0;
     uint16 l_TypeID = 0;
@@ -1640,30 +1598,29 @@ bool SqlManager::InitializeMaps()
     std::string l_FileChipsets = "";
     std::string l_Name = "";
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_TypeID = atoi(l_Row[1]);
-        l_Name = std::string(l_Row[2]);
-        l_FileName = std::string(l_Row[3]);
-        l_FileChipsets = std::string(l_Row[4]);
-        l_MaxPlayers = atoi(l_Row[5]);
-        l_Instance = atoi(l_Row[6]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_TypeID = sqlite3_column_int(l_Stmt, 1);
+        l_Name = (const char*) sqlite3_column_text(l_Stmt, 2);
+        l_FileName = (const char*) sqlite3_column_text(l_Stmt, 3);
+        l_FileChipsets = (const char*) sqlite3_column_text(l_Stmt, 4);
+        l_MaxPlayers = sqlite3_column_int(l_Stmt, 5);
+        l_Instance = sqlite3_column_int(l_Stmt, 6);
 
         MapTemplate* l_MapTemplate = new MapTemplate(l_Id, (eTypeMap)l_TypeID, l_MaxPlayers, l_Name, l_FileName, l_FileChipsets, (bool)l_Instance);
         g_MapManager->AddMapTemplate(l_MapTemplate);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 bool SqlManager::InitializeBattlegrounds()
 {
     std::string l_Query = "SELECT `id`, `mapID`,`minPlayers`, `maxPlayers`, `timeMax` FROM battleground";
-    mysql_query(&m_MysqlWorld, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
     uint16 l_MapID = 0;
@@ -1671,38 +1628,34 @@ bool SqlManager::InitializeBattlegrounds()
     uint16 l_MaxPlayers = 0;
     uint16 l_TimeMax = 0;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlWorld);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Id = atoi(l_Row[0]);
-        l_MapID = atoi(l_Row[1]);
-        l_MinPlayers = atoi(l_Row[2]);
-        l_MaxPlayers = atoi(l_Row[3]);
-        l_TimeMax = atoi(l_Row[4]);
+        l_Id = sqlite3_column_int(l_Stmt, 0);
+        l_MapID = sqlite3_column_int(l_Stmt, 1);
+        l_MinPlayers = sqlite3_column_int(l_Stmt, 2);
+        l_MaxPlayers = sqlite3_column_int(l_Stmt, 3);
+        l_TimeMax = sqlite3_column_int(l_Stmt, 4);
 
         g_MapManager->AddBGTemplate(new BGTemplate(l_Id, l_MapID, l_MinPlayers, l_MaxPlayers, l_TimeMax));
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return true;
 }
 
 int32 SqlManager::GetPlayerID(const std::string & p_PlayerName)
 {
     std::string l_Query = "SELECT `characterID` FROM characters WHERE `name` = '" + p_PlayerName + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int32 l_PlayerID = -1;
 
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_PlayerID = atoi(l_Row[0]);
+        l_PlayerID = sqlite3_column_int(l_Stmt, 0);
     }
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
 
     return l_PlayerID;
 }
@@ -1710,50 +1663,47 @@ int32 SqlManager::GetPlayerID(const std::string & p_PlayerName)
 eAccessType SqlManager::GetAccessType(uint32 p_AccountID)
 {
     std::string l_Query = "SELECT `accessType` FROM `login_access` WHERE `accountID` = '" + std::to_string(p_AccountID) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     int8 l_ID = 0;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
+        l_ID = sqlite3_column_int(l_Stmt, 0);
 
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
-        l_ID = atoi(l_Row[0]);
-
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return (eAccessType)l_ID;
 }
 
 void SqlManager::BlackListIp(const std::string & p_AdressIP, const uint32 & p_AccountAdm, const uint32 & p_TotalHours, const std::string & p_Comment)
 {
     std::string l_Query = "INSERT INTO `black_list` (ip, accountAdmin, totalHours, comment) VALUES ('" + p_AdressIP + "', '" + std::to_string(p_AccountAdm) + "', '" + std::to_string(p_TotalHours) + "', '" + p_Comment + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 void SqlManager::BlackListAccount(const uint32 & p_AccountID, const uint32 & p_AccountAdm, const uint32 & p_TotalHours, const std::string & p_Comment)
 {
     std::string l_Query = "INSERT INTO `black_list` (accountID, accountAdmin, totalHours, comment) VALUES ('" + std::to_string(p_AccountID) + "', '" + std::to_string(p_AccountAdm) + "', '" + std::to_string(p_TotalHours) + "', '" + p_Comment + "');";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    Exec(m_MysqlCharacters, l_Query);
 }
 
 bool SqlManager::IsAccountBan(const uint32 & p_AccountID)
 {
     std::string l_Query = "SELECT Unix_Timestamp(`date`), `totalHours` FROM `black_list` WHERE `accountID` = '" + std::to_string(p_AccountID) + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     bool m_IsBan = false;
     std::time_t l_Now;
     std::time_t l_Time;
     uint32 l_Hours;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
 
     time(&l_Now);
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Time = (std::time_t)atoll(l_Row[0]);
-        l_Hours = atoi(l_Row[1]);
+        l_Time = (std::time_t)sqlite3_column_int64(l_Stmt, 0);
+        l_Hours = sqlite3_column_int(l_Stmt, 1);
         struct tm now_tm = *localtime(&l_Time);
         struct tm then_tm = now_tm;
 
@@ -1766,28 +1716,27 @@ bool SqlManager::IsAccountBan(const uint32 & p_AccountID)
         }
     }
 
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return m_IsBan;
 }
 
 bool SqlManager::IsIPBan(const std::string & p_IP)
 {
     std::string l_Query = "SELECT Unix_Timestamp(`date`), `totalHours` FROM `black_list` WHERE `ip` = '" + p_IP + "'";
-    mysql_query(&m_MysqlCharacters, l_Query.c_str());
+    sqlite3_stmt* l_Stmt;
+    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+        throw std::runtime_error("invalid database query");
 
     bool m_IsBan = false;
     std::time_t l_Now;
     std::time_t l_Time;
     uint32 l_Hours;
-    MYSQL_RES *l_Result = NULL;
-    MYSQL_ROW l_Row;
 
     time(&l_Now);
-    l_Result = mysql_use_result(&m_MysqlCharacters);
-    while ((l_Row = mysql_fetch_row(l_Result)))
+    while (sqlite3_step(l_Stmt) == SQLITE_ROW)
     {
-        l_Time = (std::time_t)atoll(l_Row[0]);
-        l_Hours = atoi(l_Row[1]);
+        l_Time = (std::time_t)sqlite3_column_int64(l_Stmt, 0);
+        l_Hours = sqlite3_column_int(l_Stmt, 1);
         struct tm now_tm = *localtime(&l_Time);
         struct tm then_tm = now_tm;
 
@@ -1800,6 +1749,30 @@ bool SqlManager::IsIPBan(const std::string & p_IP)
         }
     }
 
-    mysql_free_result(l_Result);
+    sqlite3_finalize(l_Stmt);
     return m_IsBan;
+}
+
+bool SqlManager::Exec(sqlite3* p_Database, const std::string& p_Query)
+{
+    char* errMsg;
+    if (sqlite3_exec(p_Database, p_Query.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK)
+    {
+        printf("failed to prepare query %s: %s %s", p_Query.c_str(), sqlite3_errmsg(p_Database), errMsg);
+        sqlite3_free(errMsg);
+        return false;
+    }
+
+    return true;
+}
+
+bool SqlManager::Prepare(sqlite3* p_Database, const std::string& p_Query, sqlite3_stmt** p_Stmt)
+{
+    if (sqlite3_prepare_v2(p_Database, p_Query.c_str(), -1, p_Stmt, nullptr) != SQLITE_OK)
+    {
+        printf("failed to prepare query %s: %s", p_Query.c_str(), sqlite3_errmsg(p_Database));
+        return false;
+    }
+
+    return true;
 }
