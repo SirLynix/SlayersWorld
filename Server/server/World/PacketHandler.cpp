@@ -128,7 +128,7 @@ void PacketHandler::HandleSave(WorldPacket &p_Packet, WorldSocket* p_WorldSocket
 
     l_Player->Save();
     PacketWarningMsg l_Packet;
-    l_Packet.BuildPacket(eTypeWarningMsg::Yellow, "Sauvegarde effectué");
+    l_Packet.BuildPacket(eTypeWarningMsg::Yellow, "Sauvegarde effectuÃ©");
     l_Player->GetSession()->send(l_Packet.m_Packet);
 }
 

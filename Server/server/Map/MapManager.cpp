@@ -312,7 +312,7 @@ void MapManager::AddPlayerToQueue(uint16 p_BGID, Player* p_Player)
     if (std::find(m_BGListTemplate[p_BGID].second.begin(), m_BGListTemplate[p_BGID].second.end(), p_Player) != m_BGListTemplate[p_BGID].second.end())
     {
         PacketSrvPlayerMsg l_PacketNewPLayer;
-        std::string l_MsgError = "Vous êtes déjà inscrit pour ce champs de bataille : " + std::to_string(m_BGListTemplate[p_BGID].second.size()) + "/" + std::to_string(l_MinPlayer);
+        std::string l_MsgError = "Vous Ãªtes dÃ©jÃ  inscrit pour ce champs de bataille : " + std::to_string(m_BGListTemplate[p_BGID].second.size()) + "/" + std::to_string(l_MinPlayer);
         l_PacketNewPLayer.BuildPacket(l_MsgError);
         if (p_Player->GetSession())
             p_Player->GetSession()->send(l_PacketNewPLayer.m_Packet);
@@ -320,7 +320,7 @@ void MapManager::AddPlayerToQueue(uint16 p_BGID, Player* p_Player)
     }
 
     PacketSrvPlayerMsg l_Packet;
-    std::string l_Msg = "Le joueur " + p_Player->GetName() + " à rejoint la file d'attente : " + std::to_string(m_BGListTemplate[p_BGID].second.size() + 1) + "/" + std::to_string(l_MinPlayer);
+    std::string l_Msg = "Le joueur " + p_Player->GetName() + " a rejoint la file d'attente : " + std::to_string(m_BGListTemplate[p_BGID].second.size() + 1) + "/" + std::to_string(l_MinPlayer);
     l_Packet.BuildPacket(l_Msg);
     for (uint8 i = 0; i < m_BGListTemplate[p_BGID].second.size(); i++)
     {
@@ -332,7 +332,7 @@ void MapManager::AddPlayerToQueue(uint16 p_BGID, Player* p_Player)
     }
 
     PacketSrvPlayerMsg l_PacketNewPLayer;
-    l_Msg = "Vous êtes inscrit : " + std::to_string(m_BGListTemplate[p_BGID].second.size() + 1) + "/" + std::to_string(l_MinPlayer);
+    l_Msg = "Vous Ãªtes inscrit : " + std::to_string(m_BGListTemplate[p_BGID].second.size() + 1) + "/" + std::to_string(l_MinPlayer);
     l_PacketNewPLayer.BuildPacket(l_Msg);
     if (p_Player->GetSession())
         p_Player->GetSession()->send(l_PacketNewPLayer.m_Packet);

@@ -67,12 +67,12 @@ void BGCapturePoint::UnitUnaura(Unit* p_Unit, const uint16 & p_SpellID)
     if (p_SpellID == AURA_FLAG_RIGHT && m_GroupManager->GetGroupForUnit(eGroupType::BG, p_Unit)->at(0) == TEAM_LEFT_NAME) ///< Right flag
     {
         PopFlagAtPoint((p_Unit->GetPosX() / TILE_SIZE) + (p_Unit->GetPosY() / TILE_SIZE) * p_Unit->GetMap()->GetSizeX(), m_FlagRight);
-        //SendMsgToMap("L'équipe Left perd le tonneau !");
+        //SendMsgToMap("L'Ã©quipe Left perd le tonneau !");
     }
     else if (p_SpellID == AURA_FLAG_LEFT && m_GroupManager->GetGroupForUnit(eGroupType::BG, p_Unit)->at(0) == TEAM_RIGHT_NAME) ///< Right flag
     {
         PopFlagAtPoint((p_Unit->GetPosX() / TILE_SIZE) + (p_Unit->GetPosY() / TILE_SIZE) * p_Unit->GetMap()->GetSizeX(), m_FlagLeft);
-        //SendMsgToMap("L'équipe Right perd le tonneau !");
+        //SendMsgToMap("L'Ã©quipe Right perd le tonneau !");
     }
 }
 
@@ -92,7 +92,7 @@ void BGCapturePoint::UnitAddaura(Unit* p_Unit, const uint16 & p_SpellID, Aura* p
 
 void BGCapturePoint::TeamMakePoint(const uint8 & p_TeamID)
 {
-    std::string l_Msg = "L'équipe ";
+    std::string l_Msg = "L'Ã©quipe ";
     PacketExtraInterfaceData l_PacketData;
 
 
@@ -153,9 +153,9 @@ bool BGCapturePoint::LauchTrapHandle(GameObject* p_Gob, Unit* p_Unit)
         return false;
     }
     if (p_Gob->GetGameObjectTemplate()->GetID() == GOB_FLAG_RIGHT)
-        SendMsgToMap("L'équipe " + std::string(TEAM_LEFT_NAME) + " prend le tonneau !");
+        SendMsgToMap("L'Ã©quipe " + std::string(TEAM_LEFT_NAME) + " prend le tonneau !");
     if (p_Gob->GetGameObjectTemplate()->GetID() == GOB_FLAG_LEFT)
-        SendMsgToMap("L'équipe " + std::string(TEAM_RIGHT_NAME) + " prend le tonneau !");
+        SendMsgToMap("L'Ã©quipe " + std::string(TEAM_RIGHT_NAME) + " prend le tonneau !");
 
     return true;
 }

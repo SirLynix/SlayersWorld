@@ -1168,7 +1168,7 @@ void Unit::GossipTo(Player* p_Player)
             std::vector<Player*> l_AllPlayers = g_MapManager->GetAllPlayers();
             for (uint16 i = 0; i < l_AllPlayers.size(); ++i)
             {
-                l_AllPlayers[i]->SendMsg("**Quête**:" + l_GossipMsg);
+                l_AllPlayers[i]->SendMsg("**QuÃªte**:" + l_GossipMsg);
             }
         }
     }

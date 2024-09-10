@@ -418,7 +418,7 @@ void Player::LearnSpell(uint16 p_SpellID)
 {
     if (HasSpell(p_SpellID))
     {
-        SendMsg("Vous possedez déja le sort #" + std::to_string(p_SpellID));
+        SendMsg("Vous possedez dÃ©ja le sort #" + std::to_string(p_SpellID));
     }
 
     SpellTemplate* l_SpellTemplate = g_SpellManager->GetSpell(p_SpellID);
@@ -434,7 +434,7 @@ void Player::UnlearnSpell(uint16 p_SpellID)
 {
     if (!HasSpell(p_SpellID))
     {
-        SendMsg("Vous ne possédez pas le sort #" + std::to_string(p_SpellID));
+        SendMsg("Vous ne possÃ©dez pas le sort #" + std::to_string(p_SpellID));
     }
 
     SpellTemplate* l_SpellTemplate = g_SpellManager->GetSpell(p_SpellID);
@@ -534,7 +534,7 @@ void Player::ValidateQuest(Quest* p_Quest)
         return;
 
     PacketWarningMsg l_Packet;
-    l_Packet.BuildPacket(eTypeWarningMsg::Yellow, "Quete : " + p_Quest->GetName() + " terminé");
+    l_Packet.BuildPacket(eTypeWarningMsg::Yellow, "Quete : " + p_Quest->GetName() + " terminÃ©");
     GetSession()->send(l_Packet.m_Packet);
     g_SqlManager->SaveQuestForPlayer(this, p_Quest);
 

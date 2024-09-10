@@ -217,7 +217,7 @@ bool Player::HandleCommandServer(std::vector<std::string> p_ListCmd)
     uint16 l_AllPlayers = g_MapManager->GetTotalPlayers();
     SWTime l_Time = ConvertTimeToSWTime(difftime(GetActualTime(), g_MapManager->GetTimeStart()));
 
-    SendMsg("-> Serveur allumé depuis " + std::to_string(l_Time.m_Days) + "j " + std::to_string(l_Time.m_Hours) + "h " + std::to_string(l_Time.m_Minutes) + "m " + std::to_string(l_Time.m_Seconds) + "s ");
+    SendMsg("-> Serveur allumÃ© depuis " + std::to_string(l_Time.m_Days) + "j " + std::to_string(l_Time.m_Hours) + "h " + std::to_string(l_Time.m_Minutes) + "m " + std::to_string(l_Time.m_Seconds) + "s ");
     SendMsg("-> " + std::to_string(l_AllPlayers) + " joueurs");
 
     return true;
@@ -231,7 +231,7 @@ bool Player::HandleCommandSkin(std::vector<std::string> p_ListCmd)
     int16 l_SkinID = atoi(p_ListCmd[0].c_str());
     if (!HasSkin(l_SkinID)/* && GetAccessType() == 0*/)
     {
-        SendMsg("Vous ne possédez pas ce skin");
+        SendMsg("Vous ne possÃ©dez pas ce skin");
         return true;
     }
     if (/*l_SkinID >= 65 && */GetAccessType() == 0/*MAX_SKIN_IMG*/)
@@ -341,7 +341,7 @@ bool Player::HandleCommandClass(std::vector<std::string> p_ListCmd)
         l_Msg += " n'a pas de classe";
     else
     {
-        l_Msg += " à pour classe : ";
+        l_Msg += " a pour classe : ";
         switch (l_Player->GetClass())
         {
         case eClass::ASSASSIN:
@@ -460,7 +460,7 @@ bool Player::HandleCommandWisp(std::vector<std::string> p_ListCmd)
     Player* l_Player = g_MapManager->GetPlayer(l_Id);
     if (l_Player == nullptr)
     {
-        SendMsg(l_Name + " n'est pas connecté");
+        SendMsg(l_Name + " n'est pas connectÃ©");
         return true;
     }
     std::string l_Msg = "";
@@ -646,7 +646,7 @@ bool Player::HandleKick(std::vector<std::string> p_ListCmd)
     Player* l_Player = g_MapManager->GetPlayer(l_Id);
     if (l_Player == nullptr)
     {
-        SendMsg(l_Name + " non connecté");
+        SendMsg(l_Name + " non connectÃ©");
         return true;
     }
 
@@ -671,7 +671,7 @@ bool Player::HandlePlayerInfo(std::vector<std::string> p_ListCmd)
     Player* l_Player = g_MapManager->GetPlayer(l_Id);
     if (l_Player == nullptr)
     {
-        SendMsg(l_Name + " non connecté");
+        SendMsg(l_Name + " non connectÃ©");
         return true;
     }
 

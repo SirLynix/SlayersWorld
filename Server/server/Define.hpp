@@ -43,7 +43,7 @@
 #define STR_ASSASSIN "Assassin"
 #define STR_PALADIN "Paladin"
 #define STR_MAGE "Mage"
-#define STR_PRETRE "Prêtre"
+#define STR_PRETRE "PrÃªtre"
 
 enum Orientation
 {
