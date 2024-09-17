@@ -677,7 +677,7 @@ bool SqlManager::InitializeCreatureTemplate(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `entry`, `skinID`, `name`, `level`, `force`, `stamina`, `dexterity`, `speed`, `xp`, `state`, `maxRay`, `maxVision`, `movingTimeMin`, `movingTimeMax`, `stopTimeMin`, `stopTimeMax`, `respawnTime`, `rank`, `aiType`, `faction`, `rewardID` FROM creature_template";
     sqlite3_stmt* l_Stmt;
-    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
         throw std::runtime_error("invalid database query");
 
     uint32 l_Entry = 0;
@@ -865,7 +865,7 @@ bool SqlManager::InitializeGossip(UnitManager* p_CreatureManager, RequiredManage
 {
     std::string l_Query = "SELECT `id`, `requiredID`, `typeUnit`, `unitEntry`, `type`, `data0`, `data1`, `msg` FROM gossip";
     sqlite3_stmt* l_Stmt;
-    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
         throw std::runtime_error("invalid database query");
 
     uint16 l_ID = 0;
@@ -946,7 +946,7 @@ bool SqlManager::InitializeCreature(UnitManager* p_CreatureManager)
 {
     std::string l_Query = "SELECT `id`, `entry`, `mapID`, `posX`, `posY` FROM creature";
     sqlite3_stmt* l_Stmt;
-    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
         throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
@@ -987,7 +987,7 @@ bool  SqlManager::InitializeSpells()
 {
     std::string l_Query = "SELECT `id`, `level`, `visualIDUnder`, `visualID`, `visualIDTargetUnder`, `visualIDTarget`,`castTime`, `cooldown`, `duration`, `speed`,`resourceType`, `resourceNb`, `effect1`, `effect2`, `effect3`, `effect4`, `name` FROM spell_template";
     sqlite3_stmt* l_Stmt;
-    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
         throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
@@ -1053,7 +1053,7 @@ bool  SqlManager::InitializeSpellEffects()
 {
     std::string l_Query = "SELECT `id`, `effectType`, `target`, `basepoint1`, `basepoint2`, `basepoint3`, `basepoint4`, `radiusMin`, `radiusMax` FROM spell_effect";
     sqlite3_stmt* l_Stmt;
-    if (!Prepare(m_MysqlCharacters, l_Query, &l_Stmt))
+    if (!Prepare(m_MysqlWorld, l_Query, &l_Stmt))
         throw std::runtime_error("invalid database query");
 
     uint16 l_Id = 0;
